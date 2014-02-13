@@ -228,7 +228,40 @@ class SmackImpCE extends SmackWpHandler
      *            for the CSV
      * @return array formatted CSV output as array
      */
-    function csv_file_data($file, $delim)
+
+    function split_cellvalue_to_array($str){
+
+     //$u ="{'parent_unit','parent_unit','parent_unit'}^{'pro','opp','un'}";
+     $u = $str;  
+     $t =explode("^",$u);
+     $patterns = array();
+     $patterns[0] = '/{/';
+     $patterns[1] = '/}/';
+     $replacements = array();
+    $replacements[1] = '';
+    $replacements[0] = '';
+    $keyword_str = preg_replace($patterns, $replacements, $t[0]);
+    $value_str = preg_replace($patterns, $replacements, $t[1]);
+    $keywords = preg_split("/[,]+/", $keyword_str);
+    $values = preg_split("/[,]+/", $value_str);
+
+    $arraySize = sizeof($keywords);
+    $allParentUnits = array();
+    for ($arrayIndex=0;$arrayIndex<$arraySize; $arrayIndex++) {
+        $parent_unit = $values[$arrayIndex];
+
+        if(trim($parent_unit)!=""){
+           $parentUnitInfo = array ($keywords[$arrayIndex]   => $parent_unit,
+                       );
+        $postID = $wpdb->get_var($wpdb->prepare("SELECT ID FROM {$wpdb->posts} WHERE   post_type='av_unit' AND post_title = %s",$parentUnitInfo));               
+        $allParentUnits[$arrayIndex] = $postID;
+        }
+    }   
+
+    return $allParentUnits; 
+
+   } 
+   function csv_file_data($file, $delim)
     {
         $this->checkUploadDirPermission();
         ini_set("auto_detect_line_endings", true);
@@ -272,18 +305,52 @@ class SmackImpCE extends SmackWpHandler
 
         $smack_taxo = array();
         $custom_array = array();
+        $is_av_unit="";
+        $is_projectname="";
+        $tmp = array();
 
         $data_rows = $this->csv_file_data($this->getUploadDirectory() . "/" . $_POST ['filename'], $this->delim);
-
+      //echo"<pre>",print_r($data_rows),"</pre>";
         foreach ($_POST as $postkey => $postvalue) {
+        	//  echo $postkey.$postvalue."<br>";
             if ($postvalue != '-- Select --') {
                 $ret_array [$postkey] = $postvalue;
             }
         }
+    
+    //echo"<pre>",print_r($this->headers),"</pre>";
+    foreach($this->headers as $headerkey => $headervalue){
 
+       $headerkey." "."Value".$headervalue."<br>";    
+       if($headervalue == "av_unit") {$is_av_unit =$headerkey; }
+       if($headervalue == "projectname") {$is_projectname =$headerkey; }  
+    }    
+
+     //echo $is_av_unit." ".$is_projectname;
+ //die;
         foreach ($data_rows as $key => $value) {
+
             for ($i = 0; $i < count($value); $i++) {
                 if (array_key_exists('mapping' . $i, $ret_array)) {
+
+                   if ((strpos($value[$i],'{') !== false) && (strpos($value[$i],'}') !== false) && (strpos($value[$i],'^') !== false) ) {
+
+                    $value[$i]= $this->split_cellvalue_to_array($value[$i]);       
+                   } 
+                   if($is_av_unit!="" && $is_av_unit == $i ) {
+
+                    $postID = $wpdb->get_var($wpdb->prepare("SELECT ID FROM {$wpdb->posts} WHERE   post_type='av_unit' AND post_title = %s",$value[$i]));                       
+                     $value[$i] = $postID;                      
+                   
+                   }
+                   if($is_projectname!="" && $is_projectname == $i ) {
+                   
+                    $postID1 = $wpdb->get_var($wpdb->prepare("SELECT ID FROM {$wpdb->posts} WHERE   post_type='av_project' AND post_title = %s",$value[$i]));
+                     $value[$i]=(strtoupper($value[$i]) =="GENERAL")?0:$postID1;                      
+                   
+                   } 
+                  // if ( 
+                   $value[$i] =html_entity_decode($value[$i]);
                     if ($ret_array ['mapping' . $i] != 'add_custom' . $i) {
                         $strip_CF = strpos($ret_array['mapping' . $i], 'CF: ');
                         if ($strip_CF === 0) {
@@ -302,6 +369,12 @@ class SmackImpCE extends SmackWpHandler
             for ($inc = 0; $inc < count($value); $inc++) {
                 foreach ($this->keys as $k => $v) {
                     if (array_key_exists($v, $new_post)) {
+
+                       if ((strpos($new_post [$v],'{') !== false) && (strpos($new_post [$v],'}') !== false) && (strpos($new_post [$v],'^') !== false) ) {
+
+                    $new_post [$v]= $this->split_cellvalue_to_array($new_post [$v]);       
+                   }
+
                         $custom_array [$v] = $new_post [$v];
                     }
                 }
@@ -536,7 +609,7 @@ class SmackImpCE extends SmackWpHandler
 
                     if (!empty ($custom_array)) {
                         foreach ($custom_array as $custom_key => $custom_value) {
-                            add_post_meta($post_id, $custom_key, $custom_value);
+                            add_post_meta($post_id, $custom_key, html_entity_decode($custom_value));
                         }
                     }
 
